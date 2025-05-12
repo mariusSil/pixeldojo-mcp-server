@@ -1,0 +1,442 @@
+import asyncio
+import aiohttp
+import sys
+import logging
+import json
+from datetime import datetime
+import os
+
+from mcp.server.models import InitializationOptions
+import mcp.types as types
+from mcp.server import NotificationOptions, Server
+from pydantic import AnyUrl
+import mcp.server.stdio
+from pixeldojo_mcp import __version__
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Initialize the MCP server
+server = Server("pixeldojo-mcp")
+
+# Check if API key is available
+API_KEY = os.getenv('PIXELDOJO_API_KEY')
+if not API_KEY:
+    logging.warning("PIXELDOJO_API_KEY environment variable not set.")
+    logging.warning("Please set your API key with: export PIXELDOJO_API_KEY=your_api_key_here")
+elif not API_KEY.startswith("pd_") and not API_KEY.startswith("pdl_"):
+    logging.warning(f"API key format may be incorrect. PixelDojo API keys usually start with 'pd_' or 'pdl_'. Your key starts with '{API_KEY[:3]}'")
+
+
+@server.list_prompts()
+async def handle_list_prompts() -> list[types.Prompt]:
+    """
+    List available prompts.
+    Each prompt can have optional arguments to customize its behavior.
+    """
+    return [
+        types.Prompt(
+            name="pixeldojo_generate_image",
+            description="Generate images using PixelDojo AI with various models and settings",
+            arguments=[
+                types.PromptArgument(
+                    name="prompt",
+                    description="The text prompt for image generation",
+                    required=True,
+                ),
+                types.PromptArgument(
+                    name="model",
+                    description="The model to use. Options: 'flux-pro', 'flux-1.1-pro', 'flux-1.1-pro-ultra', 'flux-dev-single-lora'",
+                    required=False,
+                ),
+                types.PromptArgument(
+                    name="aspect_ratio",
+                    description="The aspect ratio of the generated image. Options: '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'",
+                    required=False,
+                ),
+            ],
+        )
+    ]
+
+
+@server.get_prompt()
+async def handle_get_prompt(
+    name: str, arguments: dict[str, str] | None
+) -> types.GetPromptResult:
+    """
+    Generate a prompt by combining arguments with server state.
+    """
+    if name != "pixeldojo_generate_image":
+        raise ValueError(f"Unknown prompt: {name}")
+
+    prompt_text = (arguments or {}).get("prompt", "")
+    model = (arguments or {}).get("model", "flux-pro")
+    aspect_ratio = (arguments or {}).get("aspect_ratio", "1:1")
+    
+    return types.GetPromptResult(
+        description=f"Generate an image using PixelDojo AI: {prompt_text}",
+        messages=[
+            types.PromptMessage(
+                role="user",
+                content=types.TextContent(
+                    type="text",
+                    text=f"Generate an image of: {prompt_text}",
+                ),
+            ),
+            types.PromptMessage(
+                role="user",
+                content=types.TextContent(
+                    type="text",
+                    text=f"Use model: {model} with aspect ratio: {aspect_ratio}",
+                ),
+            ),
+        ],
+    )
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    """List available tools provided by the PixelDojo MCP server."""
+    return [
+        types.Tool(
+            name="pixeldojo_generate_image",
+            description="Generate images using PixelDojo AI with various models and settings",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "model": {
+                        "type": "string",
+                        "enum": ["flux-pro", "flux-1.1-pro", "flux-1.1-pro-ultra", "flux-dev-single-lora"],
+                        "default": "flux-pro",
+                    },
+                    "aspect_ratio": {
+                        "type": "string",
+                        "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+                        "default": "1:1",
+                    },
+                    "num_outputs": {
+                        "type": "integer",
+                        "default": 1,
+                    },
+                    "seed": {
+                        "type": "integer",
+                    },
+                    "output_format": {
+                        "type": "string",
+                        "enum": ["png", "jpg", "webp"],
+                        "default": "png",
+                    },
+                    "output_quality": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 80,
+                    },
+                },
+                "required": ["prompt"],
+            },
+        ),
+        types.Tool(
+            name="pixeldojo_describe_models",
+            description="Get information about available PixelDojo AI models",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model_id": {
+                        "type": "string",
+                        "enum": ["flux-pro", "flux-1.1-pro", "flux-1.1-pro-ultra", "flux-dev-single-lora"],
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="pixeldojo_get_credits",
+            description="Get current credit balance information for the PixelDojo account",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+    ]
+
+
+@server.call_tool()
+async def call_tool(
+    name: str, arguments: dict
+) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    """Handle tool calls for the PixelDojo MCP server."""
+    if name == "pixeldojo_generate_image":
+        prompt = arguments["prompt"]
+        model = arguments.get("model", "flux-pro")
+        aspect_ratio = arguments.get("aspect_ratio", "1:1")
+        num_outputs = arguments.get("num_outputs", 1)
+        seed = arguments.get("seed", None)
+        output_format = arguments.get("output_format", "png")
+        output_quality = arguments.get("output_quality", 80)
+        
+        result = await generate_image(
+            prompt=prompt,
+            model=model,
+            aspect_ratio=aspect_ratio,
+            num_outputs=num_outputs,
+            seed=seed,
+            output_format=output_format,
+            output_quality=output_quality
+        )
+        
+        # Return text result with image URLs
+        return [types.TextContent(type="text", text=result)]
+    
+    elif name == "pixeldojo_describe_models":
+        model_id = arguments.get("model_id", None)
+        result = await describe_models(model_id)
+        return [types.TextContent(type="text", text=result)]
+    
+    elif name == "pixeldojo_get_credits":
+        result = await get_credits()
+        return [types.TextContent(type="text", text=result)]
+    
+    raise ValueError(f"Tool not found: {name}")
+
+
+async def generate_image(
+    prompt: str,
+    model: str = "flux-pro",
+    aspect_ratio: str = "1:1",
+    num_outputs: int = 1,
+    seed: int = None,
+    output_format: str = "png",
+    output_quality: int = 80
+) -> str:
+    """
+    Generate images using the PixelDojo API.
+    
+    Args:
+        prompt: The text description of the image to generate
+        model: The AI model to use for generation
+        aspect_ratio: The width-to-height ratio of the generated image
+        num_outputs: Number of images to generate
+        seed: Random seed for reproducible results
+        output_format: Output format (png, jpg, webp)
+        output_quality: Output quality (1-100)
+        
+    Returns:
+        A formatted string with image URLs and credit information
+    """
+    url = "https://pixeldojo.ai/api/v1/flux"
+    
+    # Prepare the request payload
+    payload = {
+        "prompt": prompt,
+        "model": model,
+        "aspect_ratio": aspect_ratio,
+        "num_outputs": num_outputs,
+        "output_format": output_format,
+        "output_quality": output_quality
+    }
+    
+    # Add optional seed if provided
+    if seed is not None:
+        payload["seed"] = seed
+    
+    headers = {
+        "Authorization": f"Bearer {os.getenv('PIXELDOJO_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return f"Error generating image: {response.status} - {error_text}"
+                
+                data = await response.json()
+                
+                # Format the response
+                image_urls = data.get("images", [])
+                credits_used = data.get("credits_used", 0)
+                credits_remaining = data.get("credits_remaining", 0)
+                
+                result = f"Generated {len(image_urls)} image(s) using {model}:\n\n"
+                
+                for i, url in enumerate(image_urls):
+                    result += f"Image {i+1}: {url}\n"
+                
+                result += f"\nCredits used: {credits_used}"
+                result += f"\nCredits remaining: {credits_remaining}"
+                result += f"\n\nNote: Generated images are stored for 24 hours. Please download any images you wish to keep."
+                
+                return result
+    except Exception as e:
+        logging.error(f"Error calling PixelDojo API: {str(e)}")
+        return f"Error calling PixelDojo API: {str(e)}"
+
+
+async def describe_models(model_id: str = None) -> str:
+    """
+    Get information about available PixelDojo AI models.
+    
+    Args:
+        model_id: Specific model ID to get details for (optional)
+        
+    Returns:
+        A formatted string with model information
+    """
+    # Define model information
+    models = {
+        "flux-pro": {
+            "name": "Flux Pro",
+            "description": "High-quality image generation with balanced performance.",
+            "credits_per_image": 1,
+            "features": [
+                "Good all-around performance",
+                "Fast generation time",
+                "Balanced quality and cost"
+            ],
+            "recommended_for": "General purpose image generation"
+        },
+        "flux-1.1-pro": {
+            "name": "Flux 1.1 Pro",
+            "description": "Improved version with better quality and detail.",
+            "credits_per_image": 1,
+            "features": [
+                "Enhanced detail",
+                "Better composition",
+                "Improved color accuracy"
+            ],
+            "recommended_for": "Detailed images"
+        },
+        "flux-1.1-pro-ultra": {
+            "name": "Flux 1.1 Pro Ultra",
+            "description": "Highest quality with enhanced details and realism. Supports raw mode.",
+            "credits_per_image": 1.5,
+            "features": [
+                "Maximum detail and realism",
+                "Raw mode support",
+                "Best for photorealism"
+            ],
+            "recommended_for": "Professional-quality, photorealistic images"
+        },
+        "flux-dev-single-lora": {
+            "name": "Flux Dev Single LoRA",
+            "description": "Advanced model with single LoRA support.",
+            "credits_per_image": 1,
+            "features": [
+                "LoRA customization",
+                "Style adaptation",
+                "Subject matter specialization"
+            ],
+            "recommended_for": "Customized styles with LoRA models"
+        }
+    }
+    
+    # If a specific model is requested, return details for that model
+    if model_id and model_id in models:
+        model = models[model_id]
+        result = f"# {model['name']} ({model_id})\n\n"
+        result += f"{model['description']}\n\n"
+        result += f"**Credits per image:** {model['credits_per_image']}\n\n"
+        result += "**Features:**\n"
+        for feature in model['features']:
+            result += f"- {feature}\n"
+        result += f"\n**Recommended for:** {model['recommended_for']}\n"
+        
+        return result
+    
+    # Otherwise, return information about all models
+    result = "# PixelDojo AI Models\n\n"
+    
+    for id, model in models.items():
+        result += f"## {model['name']} ({id})\n"
+        result += f"{model['description']}\n"
+        result += f"**Credits per image:** {model['credits_per_image']}\n"
+        result += f"**Recommended for:** {model['recommended_for']}\n\n"
+    
+    return result
+
+
+async def get_credits() -> str:
+    """
+    Get current credit balance information for the PixelDojo account.
+    
+    Returns:
+        A formatted string with credit information
+    """
+    url = "https://pixeldojo.ai/api/v1/credits"  # This is a hypothetical endpoint
+    
+    headers = {
+        "Authorization": f"Bearer {os.getenv('PIXELDOJO_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status != 200:
+                    # If the credits endpoint fails or doesn't exist, provide a fallback
+                    return "Unable to retrieve credit information. Please check your account on the PixelDojo website."
+                
+                data = await response.json()
+                
+                credits_remaining = data.get("credits_remaining", "Unknown")
+                
+                result = f"# PixelDojo Credit Information\n\n"
+                result += f"**Credits remaining:** {credits_remaining}\n\n"
+                
+                # Include usage history if available
+                if "usage_history" in data:
+                    result += "## Recent Usage\n\n"
+                    for entry in data["usage_history"]:
+                        result += f"- {entry['date']}: {entry['credits_used']} credits ({entry['description']})\n"
+                
+                return result
+    except Exception as e:
+        logging.error(f"Error retrieving credit information: {str(e)}")
+        return "Unable to retrieve credit information due to an error. Please check your account on the PixelDojo website."
+
+
+async def main_async():
+    """Main async function to run the server."""
+    API_KEY = os.getenv("PIXELDOJO_API_KEY")
+    if not API_KEY:
+        raise ValueError("PIXELDOJO_API_KEY environment variable is required")
+
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="pixeldojo-mcp",
+                server_version=__version__,
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+def main():
+    """CLI entry point for pixeldojo-mcp"""
+    logging.basicConfig(level=logging.INFO)
+
+    API_KEY = os.getenv("PIXELDOJO_API_KEY")
+    if not API_KEY:
+        print(
+            "Error: PIXELDOJO_API_KEY environment variable is required",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Log which model is being used (helpful for debug)
+    model = os.getenv("PIXELDOJO_MODEL", "flux-pro")
+    logging.info(f"Using PixelDojo AI model: {model}")
+    
+    # Run the async main function
+    asyncio.run(main_async())
+
+
+if __name__ == "__main__":
+    main()
