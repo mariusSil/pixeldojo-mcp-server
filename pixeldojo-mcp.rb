@@ -4,7 +4,7 @@ class PixeldojoMcp < Formula
   desc "MCP server for PixelDojo AI image generation API"
   homepage "https://github.com/mariusSil/pixeldojo-mcp-server"
   url "https://github.com/mariusSil/pixeldojo-mcp-server/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "PLACEHOLDER_SHA256_CHECKSUM" # Will be replaced with actual checksum after release
+  sha256 "d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed"
   license "MIT"
 
   depends_on "python@3.11"
