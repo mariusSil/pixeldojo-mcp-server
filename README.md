@@ -67,7 +67,7 @@ uv pip install pixeldojo-mcp
 pip install pixeldojo-mcp
 ```
 
-### Using Homebrew (macOS) - Recommended for Team Use
+### Using Homebrew (macOS)
 
 ```bash
 # Add the tap (only needed once)
@@ -178,19 +178,16 @@ This is the recommended installation method for team use as it provides the simp
 
 3. Add the following configuration (create the file if it doesn't exist):
 
-   ```json
-   {
-     "pixeldojo-mcp": {
-       "env": {
-         "PIXELDOJO_API_KEY": "YOUR_API_KEY_HERE"
-       },
-       "command": "uvx",
-       "args": [
-         "pixeldojo-mcp"
-       ]
-     }
-   }
-   ```
+    ```json
+    {
+      "pixeldojo-mcp": {
+        "env": {
+          "PIXELDOJO_API_KEY": "YOUR_API_KEY_HERE"
+        },
+        "command": "/opt/homebrew/bin/pixeldojo-mcp"
+      }
+    }
+    ```
 
 4. Save the file and restart Cursor.
 
