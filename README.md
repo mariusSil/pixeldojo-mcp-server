@@ -67,7 +67,7 @@ uv pip install pixeldojo-mcp
 pip install pixeldojo-mcp
 ```
 
-### Using Homebrew (macOS)
+### Using Homebrew (macOS) - Recommended for Team Use
 
 ```bash
 # Add the tap (only needed once)
@@ -76,6 +76,56 @@ brew tap mariusSil/pixeldojo
 # Install the package
 brew install pixeldojo-mcp
 ```
+
+This is the recommended installation method for team use as it provides the simplest setup experience.
+
+## Setting Up with Windsurf
+
+1. Get your PixelDojo API key from the [PixelDojo website](https://pixeldojo.ai/).
+
+2. There are two ways to configure Windsurf to use the PixelDojo MCP server:
+
+   ### Option 1: Using the Windsurf UI (Recommended)
+
+   1. Open Windsurf Editor settings by navigating to:
+      - **macOS**: Settings → Extensions → MCP Servers
+      - **Windows/Linux**: File → Preferences → Settings → Extensions → MCP Servers
+
+   2. Click "Add New Server" and fill in the following details:
+      - **Server Name**: pixeldojo-mcp
+      - **Command**: /opt/homebrew/bin/pixeldojo-mcp  (or the path where Homebrew installed it)
+      - **Environment Variables**: 
+        - Name: PIXELDOJO_API_KEY
+        - Value: YOUR_API_KEY_HERE
+
+   ### Option 2: Edit settings.json directly
+
+   1. Open your Windsurf settings.json file:
+
+      **macOS**:
+      ```bash
+      nano ~/Library/Application\ Support/Windsurf/User/settings.json
+      ```
+
+      **Windows**:
+      ```bash
+      notepad %APPDATA%\Windsurf\User\settings.json
+      ```
+
+   2. Add or update the "mcpServers" section with the PixelDojo configuration:
+
+      ```json
+      "mcpServers": {
+        "pixeldojo-mcp": {
+          "command": "/opt/homebrew/bin/pixeldojo-mcp",
+          "env": {
+            "PIXELDOJO_API_KEY": "YOUR_API_KEY_HERE"
+          }
+        }
+      }
+      ```
+
+3. Save the file and restart Windsurf.
 
 ## Setting Up with Claude Desktop
 
@@ -102,10 +152,7 @@ brew install pixeldojo-mcp
          "env": {
            "PIXELDOJO_API_KEY": "YOUR_API_KEY_HERE"
          },
-         "command": "uvx",
-         "args": [
-           "pixeldojo-mcp"
-         ]
+         "command": "pixeldojo-mcp"
        }
      }
    }
@@ -153,7 +200,43 @@ The following environment variable is required:
 
 - `PIXELDOJO_API_KEY`: Your PixelDojo API key
 
+## Team Deployment Guide
+
+To deploy this for your development team, follow these steps:
+
+1. **Setup the Homebrew Tap Repository**:
+   - Ensure your team has access to the mariusSil/homebrew-pixeldojo repository
+   - The repository should contain the pixeldojo-mcp.rb formula
+
+2. **Team Installation**:
+   Share these simple instructions with your team:
+   ```bash
+   # Add the tap
+   brew tap mariusSil/pixeldojo
+
+   # Install the PixelDojo MCP server
+   brew install pixeldojo-mcp
+
+   # Configure in Windsurf: Settings → Extensions → MCP Servers
+   # Add server with the following details:
+   # - Server Name: pixeldojo-mcp
+   # - Command: /opt/homebrew/bin/pixeldojo-mcp
+   # - Environment Variables: PIXELDOJO_API_KEY=your_api_key_here
+   ```
+
+3. **API Key Management**:
+   - Each team member will need their own PixelDojo API key
+   - Enterprise users may contact PixelDojo for team licensing options
+
 ## Examples
+
+### Generating an Image with Windsurf
+
+Once the server is set up, you can ask Cascade in Windsurf to generate images for you:
+
+> "Could you generate an image of a beautiful landscape with mountains and a lake using PixelDojo?"
+
+Cascade will use the pixeldojo_generate_image tool and present the generated image to you.
 
 ### Generating an Image with Claude Desktop
 
